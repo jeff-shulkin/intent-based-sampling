@@ -1,0 +1,3 @@
+[submodule "fps_interpolation/timelens"]
+	path = fps_interpolation/timelens
+	url = git@github.com:uzh-rpg/rpg_timelens.git
