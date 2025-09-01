@@ -1,53 +1,42 @@
 import pathlib
+import argparse
+import numpy as np
 import cv2
-import os
-from typing import List
+from torch.utils.data import DataLoader
+from fps_interpolation.datasets.HS_ERGB_dataset import HSERGBDataset
 
-### IMPORTED FROM PROJECT ###
-from tools import zipped
+def visualize_HSERGB(HSERGB_path: pathlib.Path):
 
-### CONSTANTS ####
-TARGET_FPS = 60 # FPS after interpolation
-HS_ERGB_RGB_FILE_TEMPLATE = "{:06d}.png"
-RGB_FOLDER_FILTER = "images_corrected"
-HS_ERGB_EVENT_FILE_TEMPLATE = "{:06d}.npz"
-EVENT_FOLDER_FILTER = "events_aligned"
+    # Load dataset
+    print("Loading HS-ERGB dataset...")
+    hs_ergb = HSERGBDataset(HSERGB_path)
+    hs_ergb_loader = DataLoader(hs_ergb, batch_size=1, shuffle=False)
+    print("HS-ERGB dataset loaded.")
 
-def process_HS_ERGB_dataset(hs_ergb_path: pathlib.Path) -> None:
-    # Given path to HS_ERGB dataset, interpolate each frame live based on event data
-    print("Obtaining image and event folder names...")
-    image_folders = zipped.read_dataset_directory(archive=hs_ergb_path, filter=RGB_FOLDER_FILTER)
-    event_folders = zipped.read_dataset_directory(archive=hs_ergb_path, filter=EVENT_FOLDER_FILTER)
-    print("Obtained image and event folder names.")
-    assert(len(image_folders) == len(event_folders))
+    print(f"HS-ERGB sample count: {len(hs_ergb)}")
 
-    print(f"Image folders: {image_folders}")
-    for curr_image_folder in image_folders:
-        image_pattern = "hsergb/" + curr_image_folder + "/%06d.png"
-        event_pattern = ""
+    window_name = "HS-ERGB Video Frame"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
-        print(f"Image pattern: {image_pattern}")
-        cap = cv2.VideoCapture(image_pattern)
-        while True:
-            # Read current frame from native video
-            ret, ref_frame = cap.read()
+    def tensor_to_rgb(rgb_tensor):
+        img_tensor = rgb_tensor.squeeze(0) # remove batch dimension
+        img_np = img_tensor.permute(1, 2, 0).numpy()
+        return (img_np * 255).astype("uint8")
 
-            # Stream ended
-            if not ret:
-                print(f"Video {curr_image_folder} has ended. Breaking stream.")
-                break
+    # Visualize the RGB video-stream to confirm that it was loaded properly
+    for idx, (frame_t, events, frame_tp1) in enumerate(hs_ergb_loader):
+        img = tensor_to_rgb(frame_t)
 
-            # Extract all events occuring between ref_frame and next frame
-            #ref_events = pass
+        cv2.imshow(window_name, img)
+    
+        # wait a bit to simulate video
+        key = cv2.waitKey(1)
+        if key == 27:  # ESC to quit
+            break
 
-            # Generate a new frame based on the reference frame and 
-            #interpolate()
-
-            cv2.imshow("Frame", ref_frame)
-            cv2.waitKey(1)
-
-    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    hs_ergb_folder = pathlib.Path("hsergb")
-    process_HS_ERGB_dataset(hs_ergb_folder)
+    parser = argparse.ArgumentParser(description="HS_ERGB Dataset visualization and model test.")
+    parser.add_argument("--hs_ergb", type=str, default="../fps_interpolation/datasets/hs-ergb-dataset")
+    args = parser.parse_args()
+    visualize_HSERGB(pathlib.Path(args.hs_ergb).expanduser().resolve())
