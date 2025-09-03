@@ -3,7 +3,7 @@ import argparse
 import numpy as np
 import cv2
 from torch.utils.data import DataLoader
-from fps_interpolation.datasets.HS_ERGB_dataset import HSERGBDataset
+from frame_gen.datasets.HS_ERGB_dataset import HSERGBDataset
 
 def visualize_HSERGB(HSERGB_path: pathlib.Path):
 
@@ -37,6 +37,6 @@ def visualize_HSERGB(HSERGB_path: pathlib.Path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="HS_ERGB Dataset visualization and model test.")
-    parser.add_argument("--hs_ergb", type=str, default="../fps_interpolation/datasets/hs-ergb-dataset")
+    parser.add_argument("--hs_ergb", type=str, default="../frame_gen/datasets/hs-ergb-dataset")
     args = parser.parse_args()
     visualize_HSERGB(pathlib.Path(args.hs_ergb).expanduser().resolve())

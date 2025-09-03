@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from PIL import Image 
 import pathlib 
 
-class HSERGBDataset(Dataset): 
+class BSERGBDataset(Dataset): 
     """ Pytorch class for BS-ERGB Dataset. """ 
     def __init__(self, root: pathlib.Path): 
         self.samples = [] 
@@ -14,9 +14,9 @@ class HSERGBDataset(Dataset):
         print(f"root_directory: {root.name}") 
         scenes = list(root.glob("*/*/*/*")) # matches hsergb/close/test/* etc. 
         print(f"scenes: {scenes}") 
-        for scene in scenes: 
-            events_dir = scene / "events_aligned" 
-            images_dir = scene / "images_corrected" 
+        for scene in scenes:
+            events_dir = scene / "events" 
+            images_dir = scene / "images" 
             ts_path = images_dir / "timestamp.txt" 
             if not (events_dir.exists() and images_dir.exists() and ts_path.exists()): 
                 continue 
