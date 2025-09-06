@@ -6,7 +6,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, ConcatDataset
 from time import time
 import numpy as np
-import cv2
+from tqdm import tqdm
 
 from model import NextFrameTransformerTeacher
 from frame_gen.datasets.HS_ERGB_dataset import HSERGBDataset
@@ -30,7 +30,16 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
     # Initialize scaler
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
 
-    for epoch in range(num_epochs):
+    # Create overall training progress bar
+    num_steps_per_epoch = len(dls["train_dl"])
+    epoch_pbar = tqdm(dls["train_dl"], 
+                         desc='Epochs', 
+                         unit='epoch', 
+                         total=num_epochs,
+                         position=1,    # This is key for nesting
+                         leave=False)
+
+    for epoch in epoch_pbar:
         start_time = time()
 
         # =====================================================================
@@ -41,7 +50,15 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
         epoch_loss_history = []
         epoch_video_metrics_history = []
 
-        for ref_frame, event_voxels, gt_next_frame in dls["train_dl"]:
+        # Create epoch-specific progress bar
+        step_pbar = tqdm(dls["train_dl"], 
+                         desc='Steps', 
+                         unit='step',
+                         total=num_steps_per_epoch,
+                         position=1,    # This is key for nesting
+                         leave=False)
+
+        for ref_frame, event_voxels, gt_next_frame in step_pbar:
             # Grab past RGB frame, current event voxels, and next RGB frame
             ref_frame, event_voxels, gt_next_frame = ref_frame.to(device), event_voxels.to(device), gt_next_frame.to(device)
 
@@ -76,6 +93,9 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
             for psnr, ssim in zip(batch_psnr, batch_ssim):
                 epoch_video_metrics_history.append((psnr, ssim, 0.0))
 
+        # Close epoch-specific progress bar
+        step_pbar.close()
+
         end_time = time()
         train_loss_history.append(sum(epoch_loss_history) / len(epoch_loss_history))
         train_video_metrics_history.append(tuple(np.mean(epoch_video_metrics_history, axis=0)))
@@ -90,7 +110,9 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
         print(f"Training time: {end_time - start_time}")
         validate_model(model, loss_function, dls["val_dl"])
 
-
+    # Close overall progress progress bar once all epochs have finished
+    epoch_pbar.close()
+    
 # Validation function
 def validate_model(model, loss_function, val_dl, device):
     # Variables to assess performance
