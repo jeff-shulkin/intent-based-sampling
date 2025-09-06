@@ -4,25 +4,38 @@ import numpy as np
 from torch.utils.data import Dataset 
 from PIL import Image 
 import pathlib 
+import os
+from tools.pytorch_tools import events_to_voxel
 
 class HSERGBDataset(Dataset): 
     """ Pytorch class for HS-ERGB Dataset. """ 
-    def __init__(self, root: pathlib.Path): 
-        self.samples = [] 
-        self.transform = transforms.ToTensor() 
+    def __init__(self, root: pathlib.Path, image_size=(224, 224)): 
+        # Expand to use solely absolute path
+        root = root.expanduser().resolve()
+         
+        self.samples = []
+        self.image_size = image_size
+        self.transform = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.ToTensor()
+        ])
         # find all scenes 
-        print(f"root_directory: {root.name}") 
-        scenes = list(root.glob("*/*/*/*")) # matches hsergb/close/test/* etc. 
-        print(f"scenes: {scenes}") 
-        for scene in scenes: 
-            events_dir = scene / "events_aligned" 
-            images_dir = scene / "images_corrected" 
+        scenes = []
+        for category in ["close", "far"]:
+            category_path = root / "hsergb" / category / "test"
+            if category_path.exists():
+                scene_dirs = [d for d in category_path.iterdir() if d.is_dir()]
+                scenes.extend(scene_dirs)
+        
+        for scene in scenes:
+            events_dir = scene / "events_aligned"
+            images_dir = scene / "images_corrected"
             ts_path = images_dir / "timestamp.txt" 
             if not (events_dir.exists() and images_dir.exists() and ts_path.exists()): 
-                continue 
+                continue
 
-            frame_ts = np.loadtxt(ts_path) 
-            img_files = list(images_dir.glob("*.png")) 
+            frame_ts = np.loadtxt(ts_path)
+            img_files = list(images_dir.glob("*.png"))
             
             # gather event files (00001.npz, 00002.npz, …) 
             event_files = sorted(events_dir.glob("*.npz"), key=lambda p: int(p.stem))
@@ -65,6 +78,9 @@ class HSERGBDataset(Dataset):
             events = np.empty((0,4)) 
                 
         events = torch.from_numpy(events).float() 
+
+        # Convert events to voxels
+        event_voxels = events_to_voxel(events=events.numpy(), num_bins=5, image_size=self.image_size)
             
         # Return frame, events until next frame, and next frame as tensors
-        return frame_t, events, frame_tp1
+        return frame_t, event_voxels, frame_tp1

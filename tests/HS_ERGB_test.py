@@ -39,4 +39,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="HS_ERGB Dataset visualization and model test.")
     parser.add_argument("--hs_ergb", type=str, default="../frame_gen/datasets/hs-ergb-dataset")
     args = parser.parse_args()
-    visualize_HSERGB(pathlib.Path(args.hs_ergb).expanduser().resolve())
+    visualize_HSERGB(pathlib.Path(args.hs_ergb))
