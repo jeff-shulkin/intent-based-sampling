@@ -3,7 +3,7 @@ import pathlib
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader,ConcatDataset
+from torch.utils.data import DataLoader, ConcatDataset
 from time import time
 import numpy as np
 import cv2
@@ -21,10 +21,14 @@ from tools.pytorch_tools import determine_device, split_dataset
 
 
 # Training function
-def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epochs: int, device):
+def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epochs: int, device, use_amp: bool):
+    # Initialize video metrics and training histories
     metrics = VideoMetrics()
     train_loss_history = []
     train_video_metrics_history = []
+
+    # Initialize scaler
+    scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
 
     for epoch in range(num_epochs):
         start_time = time()
@@ -38,13 +42,28 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
         epoch_video_metrics_history = []
 
         for ref_frame, event_voxels, gt_next_frame in dls["train_dl"]:
+            # Grab past RGB frame, current event voxels, and next RGB frame
             ref_frame, event_voxels, gt_next_frame = ref_frame.to(device), event_voxels.to(device), gt_next_frame.to(device)
-            optimizer.zero_grad()
-            pred_frame = model(ref_frame, event_voxels)
-            loss = loss_function(pred_frame, gt_next_frame)
+
+            # Predict the next frame based on current RGB frame and event voxels
+            pred_frame = None
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
+                pred_frame = model(ref_frame, event_voxels)
+                loss = loss_function(pred_frame, gt_next_frame)
+
             epoch_loss_history.append(loss.item())
-            loss.backward()
-            optimizer.step()
+            
+            # Scale loss using GradScaler
+            scaler.scale(loss).backward()
+
+            # Optimize
+            scaler.step(optimizer)
+            
+            # Update scaler for next iteration
+            scaler.update()
+
+            # Zero out gradients
+            optimizer.zero_grad(set_to_none=True)
 
             # Calculate per-item video metrics during epoch
             pred_np = pred_frame.detach().cpu().numpy()
@@ -116,9 +135,9 @@ def train_teacher(args):
 
     # Create DataLoaders
     batch_size = args.batch_size
-    train_dl = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
-    val_dl = DataLoader(val_set, batch_size=batch_size, shuffle=True, drop_last=True)
-    test_dl = DataLoader(test_set, batch_size=batch_size, shuffle=True, drop_last=True)
+    train_dl = DataLoader(train_set, batch_size=batch_size, shuffle=True, pin_memory=True, drop_last=True, num_workers=args.num_workers)
+    val_dl = DataLoader(val_set, batch_size=batch_size, shuffle=True, pin_memory=True, drop_last=True, num_workers=args.num_workers)
+    test_dl = DataLoader(test_set, batch_size=batch_size, shuffle=True, pin_memory=True, drop_last=True, num_workers=args.num_workers)
     dls = {
         "train_dl" : train_dl,
         "val_dl": val_dl,
@@ -150,7 +169,8 @@ def train_teacher(args):
         optimizer=optimizer, 
         dls=dls, 
         num_epochs=num_epochs, 
-        device=device)
+        device=device,
+        use_amp=args.use_amp)
 
     # Save the teacher model
     model_filename = "teacher.pth"
@@ -165,10 +185,12 @@ if __name__=="__main__":
     parser.add_argument("--hs_ergb", type=str, default="../frame_gen/datasets/hs-ergb-dataset")
     parser.add_argument("--bs_ergb", type=str, default="../frame_gen/datasets/bs-ergb-dataset")
     #parser.add_argument("--mvsec", type=str, default="../frame_gen/datasets/mvsec-dataset")
+    parser.add_argument("--num_workers", type=int, default=1)
 
     # Model training parameters
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--num_epochs", type=int, default=10)
+    parser.add_argument("--use_amp", type=bool, default=True)
     
     args = parser.parse_args()
 
