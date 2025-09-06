@@ -1,10 +1,12 @@
 import argparse
+import pathlib
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader,ConcatDataset
 from time import time
 import numpy as np
+import cv2
 
 from model import NextFrameTransformerTeacher
 from frame_gen.datasets.HS_ERGB_dataset import HSERGBDataset
@@ -45,10 +47,15 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
             optimizer.step()
 
             # Calculate per-item video metrics during epoch
-            psnr = metrics.psnr(pred_frame, gt_next_frame)
-            ssim = metrics.ssim(pred_frame, gt_next_frame)
-            lpips = metrics.lpips(pred_frame, gt_next_frame)
-            epoch_video_metrics_history.append((psnr, ssim, lpips))
+            pred_np = pred_frame.detach().cpu().numpy()
+            gt_np = gt_next_frame.detach().cpu().numpy()
+
+            batch_psnr = metrics.batched_psnr(im=pred_np, gt_im=gt_np)
+            batch_ssim = metrics.batched_ssim(im=pred_np, gt_im=gt_np)
+            #batch_lpips = metrics.batched_lpips(im=pred_np, gt_im=gt_np)
+
+            for psnr, ssim in zip(batch_psnr, batch_ssim):
+                epoch_video_metrics_history.append((psnr, ssim, 0.0))
 
         end_time = time()
         train_loss_history.append(sum(epoch_loss_history) / len(epoch_loss_history))
@@ -95,16 +102,17 @@ def train_teacher(args):
 
     # Load relevant datasets
     print("Loading datasets...")
-    HSERGB = HSERGBDataset(args.hs_ergb)
-    #BSERGB = BSERGBDataset(args.bs_ergb)
-    #MVSEC = MVSECDataset(args.mvsec)
+    HSERGB = HSERGBDataset(pathlib.Path(args.hs_ergb), image_size=(1280, 720))
+    #BSERGB = BSERGBDataset(pathlib.Path(args.bs_ergb))
+    #MVSEC = MVSECDataset(pathlib.Path(args.mvsec))
     print("All datasets loaded.")
 
     # Concatenate all datasets
     dataset = ConcatDataset([HSERGB])
+    print(f"Number of samples: {len(dataset)}")
 
     # Split concatenated dataset: 80% training, 10% validation, 10% test
-    train_set, val_set, test_set = split_dataset(dataset, 0.8, 0.1, 0.1)
+    train_set, val_set, test_set = split_dataset(dataset, ptrain=0.8, pval=0.1)
 
     # Create DataLoaders
     batch_size = args.batch_size
@@ -119,14 +127,14 @@ def train_teacher(args):
 
     # Initialize model, loss function, optimizer
     model = NextFrameTransformerTeacher(
-        image_size=(224, 224),
+        image_size=(1280, 720),
         patch_size=16,
         embed_dim=512,
         nhid=2048,
         nhead=8,
         nlayers=8,
         dropout=0.1,
-        num_voxels=1024
+        num_voxels=5
     ).to(device)
 
     learning_rate = 1e-3
