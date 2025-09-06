@@ -11,11 +11,16 @@ if is_venv_active():
     try:
         import torch
         import torchvision
+        import torchdistill
+        import timm
         import socket
         import time
         import numpy
         import scipy
+        import sklearn
+        import skimage
         import imutils
+        import lpips
         import cv2
 
 

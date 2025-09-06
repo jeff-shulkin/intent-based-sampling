@@ -1,0 +1,11 @@
+torch
+torchvision
+torchdistill
+scikit-image
+scikit-learn
+timm
+opencv-python
+imutils
+lpips
+numpy
+scipy
