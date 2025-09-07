@@ -23,9 +23,9 @@ class NextFrameTransformerTeacher(nn.Module):
             nhead=8, 
             nlayers=8, 
             dropout=0.1,
-            num_voxels=1024
+            num_voxels=1024,
+            device=None
             ):
-        #super(NextFrameTransformerTeacher, self).__init__(d_model=embed_dim, nhead=nhead, dim_feedforward=nhid, num_encoder_layers=nlayers)
         super(NextFrameTransformerTeacher, self).__init__()
         self.image_size = image_size
         self.patch_size = patch_size
@@ -101,7 +101,7 @@ class NextFrameTransformerTeacher(nn.Module):
         return t if isinstance(t, tuple) else (t, t)
     
     def _generate_square_subsequent_mask(self, sz):
-        return torch.log(torch.tril(torch.ones(sz,sz)))
+        return torch.triu(torch.ones(sz, sz, device=self.device) * float('-inf'), diagonal=1)
     
     def init_weights(self):
         initrange = 0.1
