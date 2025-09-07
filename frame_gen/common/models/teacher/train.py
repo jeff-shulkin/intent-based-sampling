@@ -170,9 +170,9 @@ def train_teacher(args):
 
     # Create DataLoaders
     batch_size = args.batch_size
-    train_dl = DataLoader(train_set, batch_size=batch_size, shuffle=True, pin_memory=True, drop_last=True, num_workers=args.num_workers)
-    val_dl = DataLoader(val_set, batch_size=batch_size, shuffle=True, pin_memory=True, drop_last=True, num_workers=args.num_workers)
-    test_dl = DataLoader(test_set, batch_size=batch_size, shuffle=True, pin_memory=True, drop_last=True, num_workers=args.num_workers)
+    train_dl = DataLoader(train_set, batch_size=batch_size, shuffle=True, pin_memory=True, persistent_workers=True, drop_last=True, num_workers=args.num_workers)
+    val_dl = DataLoader(val_set, batch_size=batch_size, shuffle=True, pin_memory=True, persistent_workers=True, drop_last=True, num_workers=args.num_workers)
+    test_dl = DataLoader(test_set, batch_size=batch_size, shuffle=True, pin_memory=True, persistent_workers=True, drop_last=True, num_workers=args.num_workers)
     dls = {
         "train_dl" : train_dl,
         "val_dl": val_dl,
@@ -190,6 +190,7 @@ def train_teacher(args):
         dropout=0.1,
         num_voxels=5
     ).to(device)
+    model = torch.compile(model, mode='reduce-overhead')
 
     learning_rate = 5e-4
     num_epochs = args.num_epochs
