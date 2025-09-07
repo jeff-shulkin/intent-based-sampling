@@ -16,9 +16,8 @@ from frame_gen.datasets.BS_ERGB_dataset import BSERGBDataset
 
 from frame_gen.common.metrics.video_metrics import VideoMetrics
 
-
 from tools.pytorch_tools import determine_device, split_dataset
-
+from tools.os_tools import image_size_arg
 
 # Training function
 def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epochs: int, device, use_amp: bool):
@@ -157,7 +156,7 @@ def train_teacher(args):
 
     # Load relevant datasets
     print("Loading datasets...")
-    HSERGB = HSERGBDataset(pathlib.Path(args.hs_ergb), image_size=(1280, 720))
+    HSERGB = HSERGBDataset(pathlib.Path(args.hs_ergb), image_size=args.image_size)
     #BSERGB = BSERGBDataset(pathlib.Path(args.bs_ergb))
     #MVSEC = MVSECDataset(pathlib.Path(args.mvsec))
     print("All datasets loaded.")
@@ -182,7 +181,7 @@ def train_teacher(args):
 
     # Initialize model, loss function, optimizer
     model = NextFrameTransformerTeacher(
-        image_size=(1280, 720),
+        image_size=args.image_size,
         patch_size=16,
         embed_dim=512,
         nhid=2048,
@@ -221,7 +220,9 @@ if __name__=="__main__":
     parser.add_argument("--hs_ergb", type=str, default="../frame_gen/datasets/hs-ergb-dataset")
     parser.add_argument("--bs_ergb", type=str, default="../frame_gen/datasets/bs-ergb-dataset")
     #parser.add_argument("--mvsec", type=str, default="../frame_gen/datasets/mvsec-dataset")
+    
     parser.add_argument("--num_workers", type=int, default=1)
+    parser.add_argument("--image_size", type=image_size_arg, default=(224,224))
 
     # Model training parameters
     parser.add_argument("--batch_size", type=int, default=16)
