@@ -191,7 +191,7 @@ def train_teacher(args):
         num_voxels=5
     ).to(device)
 
-    learning_rate = 1e-3
+    learning_rate = 5e-4
     num_epochs = args.num_epochs
     loss_function = nn.L1Loss()  # TODO: Define proper loss function. Probably combination of L1Loss, LPIPS, maybe PSNR/SSIM?
     optimizer = optim.AdamW(params=model.parameters(), lr=learning_rate)
