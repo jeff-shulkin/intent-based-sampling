@@ -12,9 +12,8 @@ class EventEmbed(nn.Module):
         # Calculate the correct number of patches
         self.num_patches = (image_size[0] // patch_size) * (image_size[1] // patch_size)
 
-        # Input dimension: num_voxels * patch_size^2
-        input_dim = num_voxels * (patch_size ** 2)
-        self.proj = nn.Linear(input_dim, d_model)
+        # create projection layer
+        self.proj = nn.Conv2d(in_channels=num_voxels, out_channels=d_model, kernel_size=patch_size, stride=patch_size)
 
     def forward(self, event_voxel_tensor):
         batch_size = event_voxel_tensor.size(0)
