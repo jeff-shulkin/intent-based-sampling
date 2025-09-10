@@ -3,6 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import sys
 
+from torchvision.utils import _log_api_usage_once
+from tools.pytorch_tools import events_to_voxel
+
 class EventEmbed(nn.Module):
     def __init__(self, num_voxels, d_model, image_size=(224, 224), patch_size=16, flatten=True):
         super().__init__()
@@ -26,10 +29,10 @@ class EventEmbed(nn.Module):
             nn.init.zeros_(self.proj.bias)
 
     def forward(self, event_voxel_tensor):
-        batch_size, channels, width, height = event_voxel_tensor.shape
+        batch_size, channels, height, width = event_voxel_tensor.shape
 
         if event_voxel_tensor.dim() != 4:
-            print(f"Expected 4D input [B, C, W, H], got shape {tuple(event_voxel_tensor.shape)}")
+            print(f"Expected 4D input [B, C, H, W], got shape {tuple(event_voxel_tensor.shape)}")
             sys.exit(1)
 
         if channels != self.num_voxels:
@@ -45,3 +48,22 @@ class EventEmbed(nn.Module):
             x = x.flatten(2).transpose(1, 2)
 
         return self.norm(x)
+    
+
+class Event_ToTensor:
+    def __init__(self, image_size=(224, 224), num_bins=5) -> None:
+        self.image_size = image_size
+        self.num_bins = num_bins
+        _log_api_usage_once(self)
+
+    def __call__(self, event_array):
+        voxel_array = events_to_voxel(event_array, self.num_bins, self.image_size)
+        voxel_tensor = torch.from_numpy(voxel_array).float()
+        if voxel_tensor.numel():
+            voxel_tensor /= (voxel_tensor.max() + 1e-6)
+        return voxel_tensor
+    
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}()"
+    
+

@@ -15,13 +15,13 @@ class NextFrameTransformerTeacher(nn.Module):
     """
 
     def __init__(
-            self, 
-            image_size=(224, 224), 
-            patch_size=16, 
-            embed_dim=512, 
-            nhid=2048, 
-            nhead=8, 
-            nlayers=8, 
+            self,
+            image_size=(224, 224),
+            patch_size=16,
+            embed_dim=512,
+            nhid=2048,
+            nhead=8,
+            nlayers=8,
             dropout=0.1,
             num_voxels=1024,
             device=None
@@ -90,7 +90,7 @@ class NextFrameTransformerTeacher(nn.Module):
         )
 
         # Define output projection layer
-        ntoken = 3 * (image_height // patch_size) * (image_width // patch_size)  
+        ntoken = 3 * (image_height // patch_size) * (image_width // patch_size)
         self.output_proj = nn.Linear(embed_dim, (3 * patch_size ** 2))
 
         # Initialize transformer weights
@@ -99,10 +99,10 @@ class NextFrameTransformerTeacher(nn.Module):
     @staticmethod
     def _pair(t):
         return t if isinstance(t, tuple) else (t, t)
-    
+
     def _generate_square_subsequent_mask(self, sz):
         return torch.triu(torch.ones(sz, sz, device=self.device) * float('-inf'), diagonal=1)
-    
+
     def init_weights(self):
         initrange = 0.1
 
@@ -142,20 +142,20 @@ class NextFrameTransformerTeacher(nn.Module):
         query_pos = self.query_pos.expand(batch_size, -1, -1)
         decoded_tokens = self.rgb_decoder(query_pos, encoded_tokens)
         predicted_patches = self.output_proj(decoded_tokens)
-        
 
-            # Reshape patches back to image
+
+        # Reshape patches back to image
         # predicted_patches shape: [batch_size, num_patches, 3 * patch_size * patch_size]
         batch_size = predicted_patches.size(0)
         patch_size = self.patch_size
         h_patches = self.image_size[0] // patch_size
         w_patches = self.image_size[1] // patch_size
-    
+
         # Reshape to [batch_size, h_patches, w_patches, 3, patch_size, patch_size]
         predicted_patches = predicted_patches.view(batch_size, h_patches, w_patches, 3, patch_size, patch_size)
-    
+
         # Rearrange to [batch_size, 3, height, width]
         predicted_frame = predicted_patches.permute(0, 3, 1, 4, 2, 5).contiguous()
         predicted_frame = predicted_frame.view(batch_size, 3, self.image_size[0], self.image_size[1])
-    
+
         return predicted_frame

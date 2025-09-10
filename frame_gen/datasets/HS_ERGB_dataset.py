@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from PIL import Image 
 import pathlib 
 import os
-from tools.pytorch_tools import events_to_voxel
+from frame_gen.common.models.modules import Event_ToTensor
 
 class HSERGBDataset(Dataset): 
     """ Pytorch class for HS-ERGB Dataset. """ 
@@ -15,10 +15,17 @@ class HSERGBDataset(Dataset):
          
         self.samples = []
         self.image_size = image_size
-        self.transform = transforms.Compose([
+
+        # Define RGB and event transforms
+        self.rgb_transform = transforms.Compose([
             transforms.Resize(image_size),
             transforms.ToTensor()
         ])
+
+        self.event_transform = transforms.Compose([
+            Event_ToTensor()
+        ])
+
         # find all scenes 
         scenes = []
         for category in ["close", "far"]:
@@ -39,6 +46,7 @@ class HSERGBDataset(Dataset):
             
             # gather event files (00001.npz, 00002.npz, …) 
             event_files = sorted(events_dir.glob("*.npz"), key=lambda p: int(p.stem))
+
             # keep only consecutive frame pairs (frame[i], frame[i+1]) 
             for i in range(len(frame_ts) - 1): 
                 self.samples.append({ 
@@ -56,9 +64,6 @@ class HSERGBDataset(Dataset):
         # load frames 
         def load_frame(path): 
             return Image.open(path).convert("RGB") 
-        
-        frame_t = self.transform(load_frame(s["frame_t_path"]))
-        frame_tp1 = self.transform(load_frame(s["frame_tp1_path"]))
 
         # load events within [ts_t, ts_tp1)
         events_list = []
@@ -76,11 +81,13 @@ class HSERGBDataset(Dataset):
             events = np.concatenate(events_list, axis=0)
         else:
             events = np.empty((0,4)) 
-                
-        events = torch.from_numpy(events).float() 
 
-        # Convert events to voxels
-        event_voxels = events_to_voxel(events=events.numpy(), num_bins=5, image_size=self.image_size)
+        # Load and normalize RGB frames
+        frame_t = self.rgb_transform(load_frame(s["frame_t_path"]))
+        frame_tp1 = self.rgb_transform(load_frame(s["frame_tp1_path"]))
+
+        # Convert events to normalized voxels
+        event_voxels = self.event_transform(events)
             
         # Return frame, events until next frame, and next frame as tensors
         return frame_t, event_voxels, frame_tp1

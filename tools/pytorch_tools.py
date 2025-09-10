@@ -25,7 +25,7 @@ def events_to_voxel(events, num_bins=5, image_size=(240, 320)):
     voxel_grid = np.zeros((C, H, W), dtype=np.float32)
 
     if len(events) == 0:
-        return torch.from_numpy(voxel_grid)
+        return voxel_grid
 
     t, x, y, p = events[:, 0], events[:, 1], events[:, 2], events[:, 3]
 
@@ -40,4 +40,4 @@ def events_to_voxel(events, num_bins=5, image_size=(240, 320)):
     for b, xi, yi, pi in zip(bin_idx, x, y, p):
         voxel_grid[b, yi, xi] += pi  # sum polarity
 
-    return torch.from_numpy(voxel_grid)
+    return voxel_grid
