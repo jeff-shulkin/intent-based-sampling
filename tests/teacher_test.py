@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 import time
 import torch
 from torch.utils.data import DataLoader
@@ -41,6 +42,31 @@ def load_test_dataset(hs_ergb_path: pathlib.Path):
 
     return test_dl
 
+def show_frame_cv2(prev_frame, predicted_frame, window_name="Prev vs Generated"):
+    def to_numpy_img(tensor_img):
+        # remove batch dim if present
+        if tensor_img.dim() == 4 and tensor_img.size(0) == 1:
+            tensor_img = tensor_img.squeeze(0)
+        img = tensor_img.detach().cpu().permute(1, 2, 0).numpy()
+        img = (img - img.min()) / (img.max() - img.min() + 1e-5)  # normalize 0-1
+        img = (img * 255).astype("uint8")
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        return img
+
+    prev_img = to_numpy_img(prev_frame)
+    pred_img = to_numpy_img(predicted_frame)
+
+    # Make sure sizes match before concatenating
+    if prev_img.shape != pred_img.shape:
+        h = min(prev_img.shape[0], pred_img.shape[0])
+        w = min(prev_img.shape[1], pred_img.shape[1])
+        prev_img = cv2.resize(prev_img, (w, h))
+        pred_img = cv2.resize(pred_img, (w, h))
+
+    combined = np.hstack((prev_img, pred_img))  # side-by-side
+    cv2.imshow(window_name, combined)
+    cv2.waitKey(1)
+
 # Function to evaluate single sample inference time on test dataset
 def test_inference(model, test_loader, device):
     inference_history = []
@@ -59,15 +85,20 @@ def test_inference(model, test_loader, device):
             # Measure inference time
             start_time = time.time()
             
+            predicted_frame = None
             with torch.amp.autocast(device_type=device.type):
-                _ = model(curr_frame, curr_event_voxels)
+                predicted_frame = model(curr_frame, curr_event_voxels)
             
             if device.type == "cuda":
                 torch.cuda.synchronize()
 
             end_time = time.time()
-            
+
             inference_history.append(end_time - start_time)
+
+            # Display generated image:
+            show_frame_cv2(predicted_frame, "Generated Frame")
+            
 
     # Print inference time statistics
     print("Teacher model inference statistics:")
