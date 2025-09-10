@@ -210,8 +210,9 @@ def train_teacher(args):
 
     # Save the teacher model
     model_filename = "teacher.pth"
-    print(f"Saving model")
-    torch.save(obj=model, f=model_filename)
+    print(f"Saving model...")
+    torch.save(obj=model.state_dict(), f=model_filename)
+    print(f"Model saved.")
 
 
 
