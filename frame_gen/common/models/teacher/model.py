@@ -93,6 +93,9 @@ class NextFrameTransformerTeacher(nn.Module):
         ntoken = 3 * (image_height // patch_size) * (image_width // patch_size)
         self.output_proj = nn.Linear(embed_dim, (3 * patch_size ** 2))
 
+        # Define patch -> original resolution upscaling
+        self.upscale = nn.PixelShuffle(self.patch_size)
+
         # Initialize transformer weights
         self.init_weights()
 
@@ -143,7 +146,6 @@ class NextFrameTransformerTeacher(nn.Module):
         decoded_tokens = self.rgb_decoder(query_pos, encoded_tokens)
         predicted_patches = self.output_proj(decoded_tokens)
 
-
         # Reshape patches back to image
         # predicted_patches shape: [batch_size, num_patches, 3 * patch_size * patch_size]
         batch_size = predicted_patches.size(0)
@@ -155,7 +157,10 @@ class NextFrameTransformerTeacher(nn.Module):
         predicted_patches = predicted_patches.view(batch_size, h_patches, w_patches, 3, patch_size, patch_size)
 
         # Rearrange to [batch_size, 3, height, width]
-        predicted_frame = predicted_patches.permute(0, 3, 1, 4, 2, 5).contiguous()
-        predicted_frame = predicted_frame.view(batch_size, 3, self.image_size[0], self.image_size[1])
+        predicted_patches = predicted_patches.permute(0, 3, 1, 4, 2, 5).contiguous()
+        predicted_patches = predicted_patches.view(batch_size, 3, self.image_size[0], self.image_size[1])
 
+        # Upscale patches into full image_size resolution frame
+        predicted_frame = self.upscale(self.predicted_patches)
+        
         return predicted_frame
