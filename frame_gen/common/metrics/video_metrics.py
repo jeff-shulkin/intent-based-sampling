@@ -5,13 +5,13 @@ from typing import Callable, Sequence, Union
 
 import torch
 
-from ignite.metrics import PSNR, SSIM, MeanSquaredError
-from ignite.metrics import Metric, reinit__is_reduced, sync_all_reduce
+from ignite.metrics import Metric, PSNR, SSIM, MeanSquaredError
+from ignite.metrics.metric import reinit__is_reduced, sync_all_reduce
 from ignite.exceptions import NotComputableError
 
 from lpips import LPIPS
 
-class LPIPS(Metric):
+class Ignite_LPIPS(Metric):
     _state_dict_all_req_keys = ("_sum_of_batchwise_lpips", "_num_examples")
 
     def __init__(
@@ -20,7 +20,7 @@ class LPIPS(Metric):
         device: Union[str, torch.device] = torch.device("cpu"),
         skip_unrolling: bool = False
     ):
-        super(LPIPS, self).__init__(output_transform=output_transform, device=device, skip_unrolling=skip_unrolling)
+        super(Ignite_LPIPS, self).__init__(output_transform=output_transform, device=device, skip_unrolling=skip_unrolling)
         self.lpips_model = LPIPS(net="alex")
 
     def _check_shape_dtype(self, output: Sequence[torch.Tensor]) -> None:
@@ -58,10 +58,10 @@ class LPIPS(Metric):
         return (self._sum_of_batchwise_lpips / self._num_examples).item()
 
 class VideoMetrics:
-    def __init__(self, device, data_range=1.0) -> None:
+    def __init__(self, device=torch.device('cuda'), data_range=1.0) -> None:
         self.psnr_metric = PSNR(data_range=data_range, device=device)
         self.ssim_metric = SSIM(data_range=data_range, device=device)
-        self.lpips_metric = LPIPS(device=device)
+        self.lpips_metric = Ignite_LPIPS(device=device)
         self.mse_metric = MeanSquaredError(device=device)
 
     def reset(self):
