@@ -161,6 +161,6 @@ class NextFrameTransformerTeacher(nn.Module):
         predicted_patches = predicted_patches.view(batch_size, 3, self.image_size[0], self.image_size[1])
 
         # Upscale patches into full image_size resolution frame
-        predicted_frame = self.upscale(self.predicted_patches)
+        predicted_frame = self.upscale(predicted_patches)
         
         return predicted_frame
