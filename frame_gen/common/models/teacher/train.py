@@ -51,6 +51,9 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
                          total=num_steps_per_epoch,
                          position=1,    # This is key for nesting
                          leave=False)
+        
+        # Reset internal video metrics
+        metrics.reset()
 
         for ref_frame, event_voxels, gt_next_frame in step_pbar:
             # Grab past RGB frame, current event voxels, and next RGB frame
@@ -87,15 +90,7 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
             optimizer.zero_grad(set_to_none=True)
 
             # Calculate per-item video metrics during epoch
-            #pred_np = pred_frame.detach().cpu().numpy()
-            #gt_np = gt_next_frame.detach().cpu().numpy()
-
-            #batch_psnr = metrics.batched_psnr(im=pred_np, gt_im=gt_np)
-            #batch_ssim = metrics.batched_ssim(im=pred_np, gt_im=gt_np)
-            #batch_lpips = metrics.batched_lpips(im=pred_np, gt_im=gt_np)
-
-            #for psnr, ssim in zip(batch_psnr, batch_ssim):
-            #    epoch_video_metrics_history.append((psnr, ssim, 0.0))
+            metrics.update(gt_frame=gt_next_frame, predicted_frame=pred_frame)
 
             step_end = time()
 
@@ -110,8 +105,10 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
         step_pbar.close()
 
         end_time = time()
+
+        # Compute epoch-specific video metrics
+        metrics.compute()
         train_loss_history.append(sum(epoch_loss_history) / len(epoch_loss_history))
-        train_video_metrics_history.append(tuple(np.mean(epoch_video_metrics_history, axis=0)))
 
         torch.cuda.empty_cache()
 
@@ -121,7 +118,7 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
         print(f"Average SSIM: {train_video_metrics_history[-1][1]}")
         print(f"Average LPIPS: {train_video_metrics_history[-1][2]}")
         print(f"Training time: {end_time - start_time}")
-        validate_model(model, loss_function, dls["val_dl"])
+        #validate_model(model, loss_function, dls["val_dl"])
 
     # Close overall progress progress bar once all epochs have finished
     epoch_pbar.close()
