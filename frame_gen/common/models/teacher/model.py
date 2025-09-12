@@ -89,12 +89,14 @@ class NextFrameTransformerTeacher(nn.Module):
             num_layers=nlayers
         )
 
-        # Define output projection layer
-        ntoken = 3 * (image_height // patch_size) * (image_width // patch_size)
-        self.output_proj = nn.Linear(embed_dim, (3 * patch_size ** 2))
-
         # Define patch -> original resolution upscaling
-        self.upscale = nn.PixelShuffle(self.patch_size)
+        self.upsampler = nn.Sequential(
+            nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(embed_dim, 3, kernel_size=1)
+        )
 
         # Initialize transformer weights
         self.init_weights()
@@ -120,10 +122,6 @@ class NextFrameTransformerTeacher(nn.Module):
             if self.event_emb.proj.bias is not None:
                 nn.init.zeros_(self.event_emb.proj.bias)
 
-        # Output projection layer
-        nn.init.xavier_uniform_(self.output_proj.weight)
-        nn.init.zeros_(self.output_proj.bias)
-
     def forward(self, rgb_frame, events):
         # Generate tokens for both RGB and event frames
         rgb_tokens = self.rgb_emb(rgb_frame)
@@ -141,26 +139,16 @@ class NextFrameTransformerTeacher(nn.Module):
 
         # Decode for next RGB frame generation
         batch_size = rgb_tokens.size(0)
-        num_queries = rgb_tokens.size(1)
         query_pos = self.query_pos.expand(batch_size, -1, -1)
         decoded_tokens = self.rgb_decoder(query_pos, encoded_tokens)
-        predicted_patches = self.output_proj(decoded_tokens)
+        
+        # Reshape decoded patches into spatial map [batch_size, embed_dim, h_patches, w_patches]
+        h_patches = self.image_size[0] // self.patch_size 
+        w_patches = self.image_size[1] // self.patch_size
+        predicted_patches = decoded_tokens.view(batch_size, h_patches, w_patches, self.embed_dim).permute(0, 3, 1, 2)
 
-        # Reshape patches back to image
-        # predicted_patches shape: [batch_size, num_patches, 3 * patch_size * patch_size]
-        batch_size = predicted_patches.size(0)
-        patch_size = self.patch_size
-        h_patches = self.image_size[0] // patch_size
-        w_patches = self.image_size[1] // patch_size
-
-        # Reshape to [batch_size, h_patches, w_patches, 3, patch_size, patch_size]
-        predicted_patches = predicted_patches.view(batch_size, h_patches, w_patches, 3, patch_size, patch_size)
-
-        # Rearrange to [batch_size, 3, height, width]
-        predicted_patches = predicted_patches.permute(0, 3, 1, 4, 2, 5).contiguous()
-        predicted_patches = predicted_patches.view(batch_size, 3, self.image_size[0], self.image_size[1])
-
-        # Upscale patches into full image_size resolution frame
-        predicted_frame = self.upscale(predicted_patches)
+        # Upsample series of patches into full image_size resolution
+        interp_frame = F.interpolate(predicted_patches, size=self.image_size, mode='bilinear', align_corners=False)
+        predicted_frame = self.upsampler(interp_frame)
         
         return predicted_frame
