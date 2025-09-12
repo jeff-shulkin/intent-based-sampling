@@ -71,6 +71,9 @@ class VideoMetrics:
         self.mse_metric.reset()
         
     def update(self, predicted_frame, gt_frame) -> None:
+        if gt_frame.dtype != predicted_frame.dtype:
+            predicted_frame = predicted_frame.to(gt_frame.dtype)
+
         self.psnr_metric.update((predicted_frame, gt_frame))
         self.ssim_metric.update((predicted_frame, gt_frame))
         self.lpips_metric.update((predicted_frame, gt_frame))
