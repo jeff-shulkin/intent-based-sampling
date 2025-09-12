@@ -17,11 +17,11 @@ class Ignite_LPIPS(Metric):
     def __init__(
         self, 
         output_transform: Callable =lambda x: x,
-        device: Union[str, torch.device] = torch.device("cpu"),
+        device: Union[str, torch.device] = torch.device("cuda"),
         skip_unrolling: bool = False
     ):
         super(Ignite_LPIPS, self).__init__(output_transform=output_transform, device=device, skip_unrolling=skip_unrolling)
-        self.lpips_model = LPIPS(net="alex")
+        self.lpips_model = LPIPS(net="alex").to(device)
 
     def _check_shape_dtype(self, output: Sequence[torch.Tensor]) -> None:
         y_pred, y = output
@@ -45,10 +45,7 @@ class Ignite_LPIPS(Metric):
         self._check_shape_dtype(output)
         y_pred, y = output[0].detach(), output[1].detach()
 
-        dim = tuple(range(1, y.ndim))
-        self._sum_of_batchwise_lpips = torch.sum(self.lpips_model(y_pred, y)).to(
-            device=self.device
-        )
+        self._sum_of_batchwise_lpips = torch.sum(self.lpips_model(y_pred, y))
         self._num_examples += y.shape[0]
 
     @sync_all_reduce("_sum_of_batchwise_lpips", "_num_examples")

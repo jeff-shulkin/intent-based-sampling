@@ -22,7 +22,7 @@ from tools.os_tools import image_size_arg
 # Training function
 def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epochs: int, device, use_amp: bool):
     # Initialize video metrics and training histories
-    metrics = VideoMetrics()
+    metrics = VideoMetrics(device=device)
     train_loss_history = []
     train_video_metrics_history = []
 
@@ -118,7 +118,7 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
         print(f"Average SSIM: {train_video_metrics_history[-1][1]}")
         print(f"Average LPIPS: {train_video_metrics_history[-1][2]}")
         print(f"Training time: {end_time - start_time}")
-        #validate_model(model, loss_function, dls["val_dl"])
+        validate_model(model, loss_function, dls["val_dl"])
 
     # Close overall progress progress bar once all epochs have finished
     epoch_pbar.close()
