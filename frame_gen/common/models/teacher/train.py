@@ -187,7 +187,8 @@ def train_teacher(args):
         dropout=0.1,
         num_voxels=5
     ).to(device)
-    model = torch.compile(model, mode='reduce-overhead')
+    
+    compiled_model = torch.compile(model, mode='reduce-overhead')
 
     learning_rate = 1e-4
     num_epochs = args.num_epochs
@@ -197,7 +198,7 @@ def train_teacher(args):
     # Train the teacher model
     print("Starting teacher model training...")
     train_model(
-        model=model,
+        model=compiled_model,
         loss_function=loss_function, 
         optimizer=optimizer, 
         dls=dls, 
