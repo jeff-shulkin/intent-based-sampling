@@ -8,7 +8,7 @@ from time import time
 import numpy as np
 from tqdm import tqdm
 
-from model import NextFrameTransformerTeacher
+from model import FusionFrameGen
 from frame_gen.datasets.HS_ERGB_dataset import HSERGBDataset
 from frame_gen.datasets.BS_ERGB_dataset import BSERGBDataset
 # TODO: Implement MVSEC Pytorch Dataset
@@ -177,7 +177,7 @@ def train_teacher(args):
     }
 
     # Initialize model, loss function, optimizer
-    model = NextFrameTransformerTeacher(
+    model = FusionFrameGen(
         image_size=args.image_size,
         patch_size=16,
         embed_dim=512,
@@ -193,7 +193,7 @@ def train_teacher(args):
     learning_rate = 1e-4
     num_epochs = args.num_epochs
     loss_function = nn.L1Loss()  # TODO: Define proper loss function. Probably combination of L1Loss, LPIPS, maybe PSNR/SSIM?
-    optimizer = optim.AdamW(params=model.parameters(), lr=learning_rate)
+    optimizer = optim.AdamW(params=filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 
     # Train the teacher model
     print("Starting teacher model training...")

@@ -4,7 +4,7 @@ import time
 import torch
 from torch.utils.data import DataLoader
 
-from frame_gen.common.models.teacher.model import NextFrameTransformerTeacher
+from frame_gen.common.models.teacher.model import FusionFrameGen
 from frame_gen.datasets.HS_ERGB_dataset import HSERGBDataset
 from tools.pytorch_tools import determine_device, split_dataset
 
@@ -18,7 +18,7 @@ def model_setup(model_weights_path: pathlib.Path):
 
     # Load model
     state_dict = torch.load(model_weights_path, weights_only=False)
-    model = NextFrameTransformerTeacher(
+    model = FusionFrameGen(
         image_size=(224,224),
         patch_size=16,
         embed_dim=512,
@@ -28,7 +28,6 @@ def model_setup(model_weights_path: pathlib.Path):
         dropout=0.1,
         num_voxels=5)
     model.load_state_dict(state_dict)
-
 
     # Compile model for faster inference time
     torch.compile(model, mode='reduce-overhead')

@@ -3,14 +3,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import torchvision
-from timm.layers import PatchEmbed
-from frame_gen.common.models.modules import EventEmbed
+import timm
+from frame_gen.common.models.modules import EventVoxelEncoder
 import math
 
 
-class NextFrameTransformerTeacher(nn.Module):
+class FusionFrameGen(nn.Module):
     """
-    This model is the "Teacher" transformer model, whose goal is to predict any N number of frames.
+    This model is the Event-RGB fusion model model, whose goal is to predict the next frame given a previous RGB image and current event stream.
     The general goal of this model is to obtain max accuracy across a number of different datasets. 
     """
 
@@ -26,7 +26,7 @@ class NextFrameTransformerTeacher(nn.Module):
             num_voxels=1024,
             device=None
             ):
-        super(NextFrameTransformerTeacher, self).__init__()
+        super(FusionFrameGen, self).__init__()
         self.image_size = image_size
         self.patch_size = patch_size
         self.embed_dim = embed_dim
@@ -37,118 +37,76 @@ class NextFrameTransformerTeacher(nn.Module):
         self.num_voxels = num_voxels
         self.src_mask = None
 
-        image_height, image_width = self._pair(image_size)
+        self.image_height, self.image_width = self._pair(image_size)
 
-        # Define patching and positional embedding
-        self.rgb_emb = PatchEmbed(
-            img_size=image_size,
-            patch_size=patch_size,
-            in_chans=3,
-            embed_dim=embed_dim
-        )
+        # Define RGB and event encoders
+        self.rgb_encoder = timm.create_model("efficientvit_b0", pretrained=True, features_only=True)
+        self._freeze_layer(self.rgb_encoder)
 
-        self.event_emb = EventEmbed(
-            num_voxels=num_voxels,
-            d_model=embed_dim,
-            image_size=image_size
-        )
+        self.event_encoder = EventVoxelEncoder(
+            num_voxels=5,
+            embed_dim=1024,
+            patch_size=16,
+            image_size=(224,224))
+        
+        # Define RGB and event projection layers
+        rgb_feature_dim = self.rgb_encoder.feature_info[-1]["num_chs"]
+        event_feature_dim = self.event_encoder.embed_dim
 
-        num_patches = (image_size[0] // patch_size) * (image_size[1] // patch_size)
-        self.rgb_pos_embedding = nn.Parameter(
-            torch.randn(1, num_patches + 1, embed_dim)
-        )
-        self.event_voxel_pos_embedding = nn.Parameter(
-            torch.randn(1, num_patches + 1, embed_dim)
-        )
-        self.query_pos = nn.Parameter(torch.randn(1, num_patches, embed_dim))
+        self.rgb_proj = nn.Linear(rgb_feature_dim, self.embed_dim)
+        self.event_proj = nn.Linear(event_feature_dim, self.embed_dim)
 
-        # Define transformer early fusion encoder
-        fusion_encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim,
-            nhead=nhead,
-            dim_feedforward=nhid,
-            dropout=dropout,
-            batch_first=True
-        )
-        self.fusion_encoder = nn.TransformerEncoder(
-            encoder_layer=fusion_encoder_layer,
-            num_layers=nlayers,
-            enable_nested_tensor=True,
-        )
-
-        # Define transformer decoder
-        rgb_decoder_layer = nn.TransformerDecoderLayer(
+        # Define fusion decoder
+        decoder_layer = nn.TransformerDecoderLayer(
             d_model=embed_dim,
             nhead=nhead,
             dim_feedforward=nhid,
             dropout=dropout,
             batch_first = True
         )
-        self.rgb_decoder = nn.TransformerDecoder(
-            decoder_layer=rgb_decoder_layer,
+        self.fusion_decoder = nn.TransformerDecoder(
+            decoder_layer=decoder_layer,
             num_layers=nlayers
         )
-
-        # Define patch -> original resolution upscaling
-        self.upsampler = nn.Sequential(
-            nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(embed_dim, 3, kernel_size=1)
-        )
-
-        # Initialize transformer weights
-        self.init_weights()
+        
+        # Define head projection
+        self.head = nn.Linear(self.embed_dim, 3 * patch_size * patch_size)
 
     @staticmethod
     def _pair(t):
         return t if isinstance(t, tuple) else (t, t)
 
+    @staticmethod
+    def _freeze_layer(layer):
+        for param in layer.parameters():
+            param.requires_grad = False
+
     def _generate_square_subsequent_mask(self, sz):
         return torch.triu(torch.ones(sz, sz, device=self.device) * float('-inf'), diagonal=1)
 
-    def init_weights(self):
-        initrange = 0.1
+    def forward(self, rgb_frame, event_voxels):
+        # Encode RGB and event voxels
+        rgb_feats = self.rgb_encoder(rgb_frame)[-1].flatten(2).transpose(1, 2)
+        event_feats = self.event_encoder(event_voxels)
 
-        # PatchEmbed (RGB) convolution
-        nn.init.xavier_uniform_(self.rgb_emb.proj.weight)
-        if self.rgb_emb.proj.bias is not None:
-            nn.init.zeros_(self.rgb_emb.proj.bias)
+        # Project RGB and event encodings to embed_dim
+        batch_size, _, _ = rgb_feats.shape
+        rgb_tokens = self.rgb_proj(rgb_feats)
+        event_tokens = self.event_proj(event_feats)
 
-        # EventEmbed weights (if it has a linear layer)
-        if hasattr(self.event_emb, 'proj'):
-            nn.init.xavier_uniform_(self.event_emb.proj.weight)
-            if self.event_emb.proj.bias is not None:
-                nn.init.zeros_(self.event_emb.proj.bias)
-
-    def forward(self, rgb_frame, events):
-        # Generate tokens for both RGB and event frames
-        rgb_tokens = self.rgb_emb(rgb_frame)
-        event_tokens = self.event_emb(events)
-
-        # Add positional embeddings for both rgb and event tokens
-        rgb_tokens += self.rgb_pos_embedding[:, :rgb_tokens.size(1), :]
-        event_tokens += self.event_voxel_pos_embedding[:, :event_tokens.size(1), :]
-
-        # Concatenate tokens
-        fused_tokens = torch.cat([rgb_tokens, event_tokens], dim=1)
-
-        # Encode fused tokens
-        encoded_tokens = self.fusion_encoder(fused_tokens, mask=self.src_mask)
-
-        # Decode for next RGB frame generation
-        batch_size = rgb_tokens.size(0)
-        query_pos = self.query_pos.expand(batch_size, -1, -1)
-        decoded_tokens = self.rgb_decoder(query_pos, encoded_tokens)
+        # Cross-attention decoder
+        decoded_tokens = self.fusion_decoder(tgt=rgb_tokens, memory=event_tokens)
         
-        # Reshape decoded patches into spatial map [batch_size, embed_dim, h_patches, w_patches]
-        h_patches = self.image_size[0] // self.patch_size 
-        w_patches = self.image_size[1] // self.patch_size
-        predicted_patches = decoded_tokens.view(batch_size, h_patches, w_patches, self.embed_dim).permute(0, 3, 1, 2)
+        # Predict RGB patches
+        rgb_patches = self.head(decoded_tokens)
 
-        # Upsample series of patches into full image_size resolution
-        interp_frame = F.interpolate(predicted_patches, size=self.image_size, mode='bilinear', align_corners=False)
-        predicted_frame = self.upsampler(interp_frame)
+        # Reconstruct image from patches
+        H_patch = self.image_size[0] // self.patch_size
+        W_patch = self.image_size[1] // self.patch_size
         
-        return predicted_frame
+        # Reshape to final image
+        img = rgb_patches.reshape(batch_size, H_patch, W_patch, 3, self.patch_size, self.patch_size)
+        img = img.permute(0, 3, 1, 4, 2, 5)  # [B, 3, H_patch, patch_size, W_patch, patch_size]
+        img = img.reshape(batch_size, 3, H_patch * self.patch_size, W_patch * self.patch_size)
+
+        return img

@@ -6,9 +6,27 @@ import sys
 from torchvision.utils import _log_api_usage_once
 from tools.pytorch_tools import events_to_voxel
 
-class EventEmbed(nn.Module):
-    def __init__(self, num_voxels, d_model, image_size=(224, 224), patch_size=16, flatten=True):
-        super().__init__()
+class Event_ToTensor:
+    def __init__(self, image_size=(224, 224), num_bins=5) -> None:
+        self.image_size = image_size
+        self.num_bins = num_bins
+        _log_api_usage_once(self)
+
+    def __call__(self, event_array):
+        voxel_array = events_to_voxel(event_array, self.num_bins, self.image_size)
+        voxel_tensor = torch.from_numpy(voxel_array).float()
+        if voxel_tensor.numel():
+            voxel_tensor /= (voxel_tensor.max() + 1e-6)
+        return voxel_tensor
+    
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}()"
+    
+
+class EventVoxelEmbed(nn.Module):
+    def __init__(self, num_voxels, d_model=1024, image_size=(224, 224), patch_size=16, flatten=True):
+        super(EventVoxelEmbed, self).__init__()
+
         self.num_voxels = num_voxels
         self.image_size=image_size
         self.patch_size = patch_size
@@ -29,7 +47,7 @@ class EventEmbed(nn.Module):
             nn.init.zeros_(self.proj.bias)
 
     def forward(self, event_voxel_tensor):
-        batch_size, channels, height, width = event_voxel_tensor.shape
+        _, channels, height, width = event_voxel_tensor.shape
 
         if event_voxel_tensor.dim() != 4:
             print(f"Expected 4D input [B, C, H, W], got shape {tuple(event_voxel_tensor.shape)}")
@@ -48,22 +66,37 @@ class EventEmbed(nn.Module):
             x = x.flatten(2).transpose(1, 2)
 
         return self.norm(x)
-    
 
-class Event_ToTensor:
-    def __init__(self, image_size=(224, 224), num_bins=5) -> None:
+class EventVoxelEncoder(nn.Module):
+    def __init__(self, num_voxels=5, embed_dim=1024, patch_size=16, image_size=(224,224)):
+        super(EventVoxelEncoder, self).__init__()
+
+        self.num_voxels = num_voxels
+        self.embed_dim = embed_dim
+        self.patch_size = patch_size
         self.image_size = image_size
-        self.num_bins = num_bins
-        _log_api_usage_once(self)
-
-    def __call__(self, event_array):
-        voxel_array = events_to_voxel(event_array, self.num_bins, self.image_size)
-        voxel_tensor = torch.from_numpy(voxel_array).float()
-        if voxel_tensor.numel():
-            voxel_tensor /= (voxel_tensor.max() + 1e-6)
-        return voxel_tensor
+        
+        # Define the event embedding layer
+        self.embed = EventVoxelEmbed(
+            num_voxels=num_voxels,
+            d_model=embed_dim,
+            image_size=image_size,
+            patch_size=patch_size,
+            flatten=True)
+        
+        # Define the internal encoder
+        trans_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim,
+            nhead=8,
+            dim_feedforward=(embed_dim * 4),
+            dropout=0.1,
+            activation="gelu",
+            batch_first=True
+        )
+        self.internal_transformer = nn.TransformerEncoder(trans_layer, num_layers=4)
     
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}()"
-    
+    def forward(self, event_voxels):
+        x = self.embed(event_voxels)
+        x = self.internal_transformer(x)
 
+        return x
