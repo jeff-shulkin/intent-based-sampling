@@ -36,18 +36,19 @@ class FusionFrameGen(nn.Module):
         self.dropout = dropout
         self.num_voxels = num_voxels
         self.src_mask = None
+        self.device = device
 
         self.image_height, self.image_width = self._pair(image_size)
 
         # Define RGB and event encoders
-        self.rgb_encoder = timm.create_model("efficientvit_b0", pretrained=True, features_only=True)
+        self.rgb_encoder = timm.create_model("swinv2_large_window12to16_192to256.ms_in22k_ft_in1k", pretrained=True, features_only=True)
         self._freeze_layer(self.rgb_encoder)
 
         self.event_encoder = EventVoxelEncoder(
             num_voxels=5,
             embed_dim=1024,
             patch_size=16,
-            image_size=(224,224))
+            image_size=self.image_size)
         
         # Define RGB and event projection layers
         rgb_feature_dim = self.rgb_encoder.feature_info[-1]["num_chs"]
