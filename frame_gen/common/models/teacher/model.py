@@ -41,7 +41,11 @@ class FusionFrameGen(nn.Module):
         self.image_height, self.image_width = self._pair(image_size)
 
         # Define RGB and event encoders
-        self.rgb_encoder = timm.create_model("swinv2_large_window12to16_192to256.ms_in22k_ft_in1k", pretrained=True, features_only=True)
+        self.rgb_encoder = timm.create_model(
+            "swinv2_large_window12to16_192to256.ms_in22k_ft_in1k",
+            pretrained=True,
+            features_only=True
+        )
         self._freeze_layer(self.rgb_encoder)
 
         self.event_encoder = EventVoxelEncoder(
@@ -51,19 +55,35 @@ class FusionFrameGen(nn.Module):
             image_size=self.image_size)
         
         # Define RGB and event projection layers
-        rgb_feature_dim = self.rgb_encoder.feature_info[-1]["num_chs"]
-        event_feature_dim = self.event_encoder.embed_dim
+        rgb_feature_info = self.rgb_encoder.feature_info[-1]
+        rgb_feature_dim = rgb_feature_info["num_chs"]
+        reduction_factor = rgb_feature_info["reduction"]
+        if isinstance(reduction_factor, int):
+            self.rgb_feature_size = (
+                image_size[0] // reduction_factor,
+                image_size[1] // reduction_factor
+            )
+        else:  # it's a tuple
+            self.rgb_feature_size = (
+                image_size[0] // reduction_factor[0],
+                image_size[1] // reduction_factor[1]
+            )
 
         self.rgb_proj = nn.Linear(rgb_feature_dim, self.embed_dim)
-        self.event_proj = nn.Linear(event_feature_dim, self.embed_dim)
+        self.event_proj = nn.Linear(self.event_encoder.embed_dim, self.embed_dim)
+
+        # Define position encoding
+        self.pos_encoder = nn.Parameter(torch.randn(1, self.rgb_feature_size[0] * self.rgb_feature_size[1], embed_dim))
 
         # Define fusion decoder
         decoder_layer = nn.TransformerDecoderLayer(
-            d_model=embed_dim,
-            nhead=nhead,
+            d_model=self.embed_dim,
+            nhead=self.nhead,
             dim_feedforward=nhid,
-            dropout=dropout,
-            batch_first = True
+            dropout=self.dropout,
+            batch_first=True,
+            bias=True,
+            device=self.device
         )
         self.fusion_decoder = nn.TransformerDecoder(
             decoder_layer=decoder_layer,
@@ -71,7 +91,21 @@ class FusionFrameGen(nn.Module):
         )
         
         # Define head projection
-        self.head = nn.Linear(self.embed_dim, 3 * patch_size * patch_size)
+        self.head = nn.Sequential(
+            nn.Linear(self.embed_dim, 4 * self.embed_dim),
+            nn.GELU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(4 * self.embed_dim, 3 * (patch_size ** 2))
+        )
+
+        # Initialize layer weights
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.xavier_uniform_(module.weight)
+            if module.bias != None:
+                nn.init.constant_(module.bias, 0)
 
     @staticmethod
     def _pair(t):
@@ -86,28 +120,33 @@ class FusionFrameGen(nn.Module):
         return torch.triu(torch.ones(sz, sz, device=self.device) * float('-inf'), diagonal=1)
 
     def forward(self, rgb_frame, event_voxels):
+        batch_size = rgb_frame.size(0)
+        
         # Encode RGB and event voxels
-        rgb_feats = self.rgb_encoder(rgb_frame)[-1].flatten(2).transpose(1, 2)
-        event_feats = self.event_encoder(event_voxels)
+        rgb_feats = self.rgb_encoder(rgb_frame)[-1]
+        rgb_tokens = rgb_feats.flatten(2).transpose(1, 2)
+
+        event_tokens = self.event_encoder(event_voxels)
 
         # Project RGB and event encodings to embed_dim
-        batch_size, _, _ = rgb_feats.shape
-        rgb_tokens = self.rgb_proj(rgb_feats)
-        event_tokens = self.event_proj(event_feats)
+        rgb_tokens = self.rgb_proj(rgb_tokens)
+        event_tokens = self.event_proj(event_tokens)
+
+        # Encode positions onto RGB tokens
+        rgb_tokens += self.pos_encoder[:, :rgb_tokens.size(1), :]
 
         # Cross-attention decoder
-        decoded_tokens = self.fusion_decoder(tgt=rgb_tokens, memory=event_tokens)
+        fused_tokens = self.fusion_decoder(tgt=rgb_tokens, memory=event_tokens)
         
         # Predict RGB patches
-        rgb_patches = self.head(decoded_tokens)
+        rgb_patches = self.head(fused_tokens)
 
         # Reconstruct image from patches
-        H_patch = self.image_size[0] // self.patch_size
-        W_patch = self.image_size[1] // self.patch_size
-        
-        # Reshape to final image
-        img = rgb_patches.reshape(batch_size, H_patch, W_patch, 3, self.patch_size, self.patch_size)
-        img = img.permute(0, 3, 1, 4, 2, 5)  # [B, 3, H_patch, patch_size, W_patch, patch_size]
-        img = img.reshape(batch_size, 3, H_patch * self.patch_size, W_patch * self.patch_size)
+        H, W = self.rgb_feature_size
+        patches = rgb_patches.view(batch_size, H, W, 3, self.patch_size, self.patch_size)
+        patches = patches.permute(0, 3, 1, 4, 2, 5)  # [B, 3, H, patch_size, W, patch_size]
+        img = patches.contiguous().view(
+            batch_size, 3, H * self.patch_size, W * self.patch_size
+        )
 
         return img
