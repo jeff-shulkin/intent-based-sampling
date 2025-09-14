@@ -7,19 +7,20 @@ from torch.utils.data import DataLoader
 from frame_gen.common.models.teacher.model import FusionFrameGen
 from frame_gen.datasets.HS_ERGB_dataset import HSERGBDataset
 from tools.pytorch_tools import determine_device, split_dataset
+from tools.os_tools import image_size_arg
 
 import pathlib
 import argparse
 
 # Function to set up model for inference testing
-def model_setup(model_weights_path: pathlib.Path):
+def model_setup(image_size: tuple[int, int], model_weights_path: pathlib.Path):
     # Resolve model path
     model_weights_path = model_weights_path.expanduser().resolve()
 
     # Load model
     state_dict = torch.load(model_weights_path, weights_only=False)
     model = FusionFrameGen(
-        image_size=(224,224),
+        image_size=image_size,
         patch_size=16,
         embed_dim=512,
         nhid=2048,
@@ -78,7 +79,7 @@ def show_frame_cv2(prev_frame, predicted_frame, window_name="Prev vs Generated")
     cv2.waitKey(1)
 
 # Function to evaluate single sample inference time on test dataset
-def test_inference(model, test_loader, device):
+def test_inference(model, test_loader, device, use_amp=True):
     inference_history = []
 
     start_time = None
@@ -96,7 +97,7 @@ def test_inference(model, test_loader, device):
             start_time = time.time()
             
             predicted_frame = None
-            with torch.amp.autocast(device_type=device.type):
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
                 predicted_frame = model(curr_frame, curr_event_voxels)
             
             if device.type == "cuda":
@@ -120,6 +121,8 @@ def test_inference(model, test_loader, device):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="HS_ERGB Dataset visualization and model test.")
     parser.add_argument("--hs_ergb", type=str, default="../frame_gen/datasets/hs-ergb-dataset")
+    parser.add_argument("--image_size", type=image_size_arg, default=(224,224))
+    parser.add_argument("--use_amp", type=bool, default=True)
     parser.add_argument("--teacher_model_path", type=str, default="../frame_gen/common/models/teacher/teacher.pth")
     args = parser.parse_args()
 
@@ -127,8 +130,8 @@ if __name__ == "__main__":
     test_dl = load_test_dataset(pathlib.Path(args.hs_ergb))
     
     # Setup model
-    model, device = model_setup(pathlib.Path(args.teacher_model_path))
+    model, device = model_setup(args.image_size, pathlib.Path(args.teacher_model_path))
 
     # Test teacher model on entire test set
-    test_inference(model=model, test_loader=test_dl, device=device)
+    test_inference(model=model, test_loader=test_dl, device=device, use_amp=args.use_amp)
 
