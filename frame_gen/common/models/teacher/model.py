@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import torchvision
+import torchvision.models as models
 import timm
 from frame_gen.common.models.modules import EventVoxelEncoder
 import math
@@ -41,12 +41,18 @@ class FusionFrameGen(nn.Module):
         self.image_height, self.image_width = self._pair(image_size)
 
         # Define RGB and event encoders
-        self.rgb_encoder = timm.create_model(
-            "swinv2_large_window12to16_192to256.ms_in22k_ft_in1k",
-            pretrained=True,
-            features_only=True
-        )
+        # RGB encoder: remove avgpool and fc layers to get spatial map
+        resnet = models.resnet101(weights=models.ResNet101_Weights.IMAGENET1K_V2)
+        modules = list(resnet.children())[:-2]
+        self.rgb_encoder = nn.Sequential(*modules)
         self._freeze_layer(self.rgb_encoder)
+
+        # Run through encoder once to get feature dimensions and size
+        with torch.no_grad():
+            dummy = torch.zeros(1, 3, *self.image_size)
+            rgb_feats = self.rgb_encoder(dummy)
+            self.rgb_feature_dim = rgb_feats.shape[1]
+            self.rgb_feature_size = rgb_feats.shape[2], rgb_feats.shape[3]
 
         self.event_encoder = EventVoxelEncoder(
             num_voxels=5,
@@ -55,21 +61,7 @@ class FusionFrameGen(nn.Module):
             image_size=self.image_size)
         
         # Define RGB and event projection layers
-        rgb_feature_info = self.rgb_encoder.feature_info[-1]
-        rgb_feature_dim = rgb_feature_info["num_chs"]
-        reduction_factor = rgb_feature_info["reduction"]
-        if isinstance(reduction_factor, int):
-            self.rgb_feature_size = (
-                image_size[0] // reduction_factor,
-                image_size[1] // reduction_factor
-            )
-        else:  # it's a tuple
-            self.rgb_feature_size = (
-                image_size[0] // reduction_factor[0],
-                image_size[1] // reduction_factor[1]
-            )
-
-        self.rgb_proj = nn.Linear(rgb_feature_dim, self.embed_dim)
+        self.rgb_proj = nn.Linear(self.rgb_feature_dim, self.embed_dim)
         self.event_proj = nn.Linear(self.event_encoder.embed_dim, self.embed_dim)
 
         # Define position encoding
@@ -120,12 +112,14 @@ class FusionFrameGen(nn.Module):
         return torch.triu(torch.ones(sz, sz, device=self.device) * float('-inf'), diagonal=1)
 
     def forward(self, rgb_frame, event_voxels):
-        batch_size = rgb_frame.size(0)
-        
-        # Encode RGB and event voxels
-        rgb_feats = self.rgb_encoder(rgb_frame)[-1]
+        # Encode RGB frame
+        rgb_feats = self.rgb_encoder(rgb_frame)
+        batch_size, channels, height, width = rgb_feats.shape
+
+        # Flatten rgb tokens into [B, H*W, C]
         rgb_tokens = rgb_feats.flatten(2).transpose(1, 2)
 
+        # Encode event stream voxels
         event_tokens = self.event_encoder(event_voxels)
 
         # Project RGB and event encodings to embed_dim
@@ -148,5 +142,8 @@ class FusionFrameGen(nn.Module):
         img = patches.contiguous().view(
             batch_size, 3, H * self.patch_size, W * self.patch_size
         )
+        
+        # Upsample image to original resolution
+        img = F.interpolate(img, size=self.image_size, mode='bilinear', align_corners=False)
 
         return img
