@@ -8,7 +8,7 @@ from time import time
 import numpy as np
 from tqdm import tqdm
 
-from model import FusionFrameGen
+from frame_gen.common.models.model import FusionFrameGen
 from frame_gen.datasets.HS_ERGB_dataset import HSERGBDataset
 from frame_gen.datasets.BS_ERGB_dataset import BSERGBDataset
 # TODO: Implement MVSEC Pytorch Dataset
@@ -24,7 +24,6 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
     # Initialize video metrics and training histories
     metrics = VideoMetrics(device=device)
     train_loss_history = []
-    train_video_metrics_history = []
 
     # Initialize scaler
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
@@ -42,7 +41,6 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
 
         model.train() # Set model to train
         epoch_loss_history = []
-        epoch_video_metrics_history = []
 
         # Create epoch-specific progress bar
         step_pbar = tqdm(dls["train_dl"], 
@@ -57,31 +55,20 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
 
         for ref_frame, event_voxels, gt_next_frame in step_pbar:
             # Grab past RGB frame, current event voxels, and next RGB frame
-            load_start = time()
             ref_frame, event_voxels, gt_next_frame = ref_frame.to(device), event_voxels.to(device), gt_next_frame.to(device)
-            load_end = time()
 
             # Predict the next frame based on current RGB frame and event voxels
-            pred_start = None
-            pred_end = None
-            pred_frame = None
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
-                pred_start = time()
                 pred_frame = model(ref_frame, event_voxels)
                 loss = loss_function(pred_frame, gt_next_frame)
-                pred_end = time()
 
             epoch_loss_history.append(loss.item())
             
             # Scale loss using GradScaler
-            back_start = time()
             scaler.scale(loss).backward()
-            back_end = time()
 
             # Optimize
-            opt_start = time()
             scaler.step(optimizer)
-            opt_end = time()
             
             # Update scaler for next iteration
             scaler.update()
@@ -91,15 +78,6 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
 
             # Calculate per-item video metrics during epoch
             metrics.update(gt_frame=gt_next_frame, predicted_frame=pred_frame)
-
-            step_end = time()
-
-            print("Step timing metrics:")
-            print(f"Step Time: {step_end - load_start} seconds")
-            print(f"Load Time: {load_end - load_start} seconds")
-            print(f"Prediction Time: {pred_end - pred_start} seconds")
-            print(f"Backwards Time: {back_end - back_start}")
-            print(f"Optimization Time: {opt_end - opt_start} seconds")
 
         # Close epoch-specific progress bar
         step_pbar.close()
@@ -114,11 +92,8 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
 
         print(f"Epoch: {epoch}")
         print(f"Training loss: {train_loss_history[-1]}")
-        print(f"Average PSNR: {train_video_metrics_history[-1][0]}")
-        print(f"Average SSIM: {train_video_metrics_history[-1][1]}")
-        print(f"Average LPIPS: {train_video_metrics_history[-1][2]}")
         print(f"Training time: {end_time - start_time}")
-        validate_model(model, loss_function, dls["val_dl"])
+        #validate_model(model, loss_function, dls["val_dl"])
 
     # Close overall progress progress bar once all epochs have finished
     epoch_pbar.close()
@@ -167,9 +142,33 @@ def train_teacher(args):
 
     # Create DataLoaders
     batch_size = args.batch_size
-    train_dl = DataLoader(train_set, batch_size=batch_size, shuffle=True, pin_memory=True, persistent_workers=True, drop_last=True, num_workers=args.num_workers)
-    val_dl = DataLoader(val_set, batch_size=batch_size, shuffle=True, pin_memory=True, persistent_workers=True, drop_last=True, num_workers=args.num_workers)
-    test_dl = DataLoader(test_set, batch_size=batch_size, shuffle=True, pin_memory=True, persistent_workers=True, drop_last=True, num_workers=args.num_workers)
+    train_dl = DataLoader(
+        train_set, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        pin_memory=True, 
+        persistent_workers=True, 
+        drop_last=True, 
+        num_workers=args.num_workers
+    )
+    val_dl = DataLoader(
+        val_set,
+        batch_size=batch_size,
+        shuffle=True,
+        pin_memory=True,
+        persistent_workers=True,
+        drop_last=True,
+        num_workers=args.num_workers
+    )
+    test_dl = DataLoader(
+        test_set,
+        batch_size=batch_size,
+        shuffle=True,
+        pin_memory=True,
+        persistent_workers=True,
+        drop_last=True,
+        num_workers=args.num_workers
+    )
     dls = {
         "train_dl" : train_dl,
         "val_dl": val_dl,
@@ -207,7 +206,7 @@ def train_teacher(args):
         use_amp=args.use_amp)
 
     # Save the teacher model
-    model_filename = "teacher.pth"
+    model_filename = "model.pth"
     print(f"Saving model...")
     torch.save(obj=model.state_dict(), f=model_filename)
     print(f"Model saved.")

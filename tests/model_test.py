@@ -4,7 +4,7 @@ import time
 import torch
 from torch.utils.data import DataLoader
 
-from frame_gen.common.models.teacher.model import FusionFrameGen
+from frame_gen.common.models.model import FusionFrameGen
 from frame_gen.datasets.HS_ERGB_dataset import HSERGBDataset
 from tools.pytorch_tools import determine_device, split_dataset
 from tools.os_tools import image_size_arg
@@ -123,15 +123,15 @@ if __name__ == "__main__":
     parser.add_argument("--hs_ergb", type=str, default="../frame_gen/datasets/hs-ergb-dataset")
     parser.add_argument("--image_size", type=image_size_arg, default=(224,224))
     parser.add_argument("--use_amp", type=bool, default=True)
-    parser.add_argument("--teacher_model_path", type=str, default="../frame_gen/common/models/teacher/teacher.pth")
+    parser.add_argument("--model_path", type=str, default="../frame_gen/common/models/model.pth")
     args = parser.parse_args()
 
     # Load test dataset (HS-ERGB)
     test_dl = load_test_dataset(pathlib.Path(args.hs_ergb))
     
     # Setup model
-    model, device = model_setup(args.image_size, pathlib.Path(args.teacher_model_path))
+    model, device = model_setup(args.image_size, pathlib.Path(args.model_path))
 
-    # Test teacher model on entire test set
+    # Test model on entire test set
     test_inference(model=model, test_loader=test_dl, device=device, use_amp=args.use_amp)
 
