@@ -136,8 +136,11 @@ class FusionFrameGen(nn.Module):
         fused_tokens = self.fusion_decoder(tgt=rgb_tokens, memory=event_tokens)
 
         # Reshape tokens into 2D spatial map
+        _, num_pixels, channels = fused_tokens.shape
         H, W = self.rgb_feature_size
-        spatial_map = fused_tokens.transpose(1, 2).view(batch_size, self.embed_dim, H, W)
+        if (H * W) != num_pixels:
+            H = W = int(num_pixels ** 0.5)
+        spatial_map = fused_tokens.transpose(1, 2).view(batch_size, channels, H, W)
         
         # Convolve spatial map
         img = self.head(spatial_map)
