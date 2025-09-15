@@ -85,7 +85,7 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
         end_time = time()
 
         # Compute epoch-specific video metrics
-        metrics.compute()
+        epoch_metrics = metrics.compute()
         train_loss_history.append(sum(epoch_loss_history) / len(epoch_loss_history))
 
         torch.cuda.empty_cache()
@@ -93,6 +93,12 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
         print(f"Epoch: {epoch}")
         print(f"Training loss: {train_loss_history[-1]}")
         print(f"Training time: {end_time - start_time}")
+        
+        print(f"Training PSNR: {epoch_metrics["psnr"]}")
+        print(f"Training SSIM: {epoch_metrics["ssim"]}")
+        print(f"Training LPIPS: {epoch_metrics["lpips"]}")
+        print(f"Training MSE: {epoch_metrics["mse"]}")
+
         #validate_model(model, loss_function, dls["val_dl"])
 
     # Close overall progress progress bar once all epochs have finished

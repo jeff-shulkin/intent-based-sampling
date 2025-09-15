@@ -61,7 +61,7 @@ class VideoMetrics:
         self.lpips_metric = Ignite_LPIPS(device=device)
         self.mse_metric = MeanSquaredError(device=device)
 
-    def reset(self):
+    def reset(self) -> None:
         self.psnr_metric.reset()
         self.ssim_metric.reset()
         self.lpips_metric.reset()
@@ -76,8 +76,10 @@ class VideoMetrics:
         self.lpips_metric.update((predicted_frame, gt_frame))
         self.mse_metric.update((predicted_frame, gt_frame))
 
-    def compute(self) -> None:
-        self.psnr_metric.compute()
-        self.ssim_metric.compute()
-        self.lpips_metric.compute()
-        self.mse_metric.compute()
+    def compute(self) -> tuple[float, float, float, float]:
+        psnr = self.psnr_metric.compute()
+        ssim = self.ssim_metric.compute()
+        lpips = self.lpips_metric.compute()
+        mse = self.mse_metric.compute()
+
+        return {"psnr": psnr, "ssim": ssim, "lpips": lpips, "mse": mse}
