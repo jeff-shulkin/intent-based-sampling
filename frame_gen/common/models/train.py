@@ -47,7 +47,7 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
                          desc='Steps', 
                          unit='step',
                          total=num_steps_per_epoch,
-                         position=1,    # This is key for nesting
+                         position=1,
                          leave=False)
         
         # Reset internal video metrics
@@ -105,29 +105,46 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
     epoch_pbar.close()
 
 # Validation function
-def validate_model(model, loss_function, val_dl, device):
-    # Variables to assess performance
+def validate_model(model, loss_function, val_dl, device, use_amp: bool = True):
+    model.eval()
+    metrics = VideoMetrics(device=device)
     epoch_loss_history = []
-    validation_loss_history = []
-    validation_accuracy_history = []
-    num_correct = 0
-    num_total = 0
 
     with torch.no_grad():
-        for inputs, true_labels in val_dl:
-            inputs, true_labels = inputs.to(device), true_labels.to(device)
-            true_labels = true_labels.squeeze(1)
-            outputs = model(inputs)
-            loss = loss_function(outputs, true_labels)
-            epoch_loss_history.append(loss.item())
-            _, predicted_labels = torch.max(outputs, 1)
-            num_total += true_labels.size(0)
-            num_correct += (predicted_labels == true_labels).sum().item()
+        val_pbar = tqdm(val_dl, desc="Validating", unit="batch", leave=False)
+        
+        for ref_frame, event_voxels, gt_next_frame in val_pbar:
+            ref_frame = ref_frame.to(device)
+            event_voxels = event_voxels.to(device)
+            gt_next_frame = gt_next_frame.to(device)
 
-    validation_loss_history.append(sum(epoch_loss_history) / len(epoch_loss_history))
-    validation_accuracy_history.append(100 * num_correct / num_total)
-    print(f"Validation loss: {validation_loss_history[-1]}")
-    print(f"Validation accuracy: {validation_accuracy_history[-1]} %")
+            # Forward pass
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
+                pred_frame = model(ref_frame, event_voxels)
+                loss = loss_function(pred_frame, gt_next_frame)
+
+            epoch_loss_history.append(loss.item())
+
+            # Update video metrics
+            metrics.update(predicted_frame=pred_frame, gt_frame=gt_next_frame)
+
+        val_pbar.close()
+
+    # Compute metrics
+    epoch_metrics = metrics.compute()
+    val_loss = sum(epoch_loss_history) / len(epoch_loss_history)
+
+    print(f"\nValidation results:")
+    print(f"Loss: {val_loss:.6f}")
+    print(f"PSNR: {epoch_metrics['psnr']:.4f}")
+    print(f"SSIM: {epoch_metrics['ssim']:.4f}")
+    print(f"LPIPS: {epoch_metrics['lpips']:.4f}")
+    print(f"MSE: {epoch_metrics['mse']:.6f}")
+
+    return {
+        "loss": val_loss,
+        **epoch_metrics
+    }
 
 def train_teacher(args):
     device = determine_device()
