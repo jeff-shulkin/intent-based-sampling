@@ -84,10 +84,13 @@ class FusionFrameGen(nn.Module):
         
         # Define head projection
         self.head = nn.Sequential(
-            nn.Linear(self.embed_dim, 4 * self.embed_dim),
+            nn.ConvTranspose2d(embed_dim, embed_dim // 2, kernel_size=4, stride=2, padding=1),
             nn.GELU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(4 * self.embed_dim, 3 * (patch_size ** 2))
+            nn.ConvTranspose2d(embed_dim // 2, embed_dim // 4, kernel_size=4, stride=2, padding=1),
+            nn.GELU(),
+            nn.ConvTranspose2d(embed_dim // 4, embed_dim // 8, kernel_size=4, stride=2, padding=1),
+            nn.GELU(),
+            nn.ConvTranspose2d(embed_dim // 8, 3, kernel_size=3, stride=1, padding=1),
         )
 
         # Initialize layer weights
@@ -131,19 +134,14 @@ class FusionFrameGen(nn.Module):
 
         # Cross-attention decoder
         fused_tokens = self.fusion_decoder(tgt=rgb_tokens, memory=event_tokens)
-        
-        # Predict RGB patches
-        rgb_patches = self.head(fused_tokens)
 
-        # Reconstruct image from patches
+        # Reshape tokens into 2D spatial map
         H, W = self.rgb_feature_size
-        patches = rgb_patches.view(batch_size, H, W, 3, self.patch_size, self.patch_size)
-        patches = patches.permute(0, 3, 1, 4, 2, 5)  # [B, 3, H, patch_size, W, patch_size]
-        img = patches.contiguous().view(
-            batch_size, 3, H * self.patch_size, W * self.patch_size
-        )
+        spatial_map = fused_tokens.transpose(1, 2).view(batch_size, self.embed_dim, H, W)
         
-        # Upsample image to original resolution
-        img = F.interpolate(img, size=self.image_size, mode='bilinear', align_corners=False)
+        # Convolve spatial map
+        img = self.head(spatial_map)
 
-        return img
+        # Interpolate generated image to input resolution
+        predicted_frame = F.interpolate(img, size=self.image_size, mode="bilinear", align_corners=False)
+        return predicted_frame
