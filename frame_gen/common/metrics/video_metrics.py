@@ -11,12 +11,14 @@ from ignite.exceptions import NotComputableError
 
 from lpips import LPIPS
 
+from tools.pytorch_tools import _lpips_scale
+
 class Ignite_LPIPS(Metric):
     _state_dict_all_req_keys = ("_sum_of_batchwise_lpips", "_num_examples")
 
     def __init__(
         self, 
-        output_transform: Callable =lambda x: x,
+        output_transform: Callable = lambda x: x,
         device: Union[str, torch.device] = torch.device("cuda"),
         skip_unrolling: bool = False
     ):
@@ -35,9 +37,6 @@ class Ignite_LPIPS(Metric):
                 f"Expected y_pred and y to have the same shape. Got y_pred: {y_pred.shape} and y: {y.shape}."
             )
         
-    def _scale(self, im: Sequence[torch.Tensor]) -> None:
-        return 2 * im - 1
-        
     @reinit__is_reduced
     def reset(self):
         self._sum_of_batchwise_lpips = torch.tensor(0.0, dtype=self._double_dtype, device=self._device)
@@ -46,7 +45,7 @@ class Ignite_LPIPS(Metric):
     @reinit__is_reduced
     def update(self, output: Sequence[torch.Tensor]) -> None:
         self._check_shape_dtype(output)
-        y_pred, y = self._scale(output[0].detach()), self._scale(output[1].detach())
+        y_pred, y = _lpips_scale(output[0].detach()), _lpips_scale(output[1].detach())
 
         self._sum_of_batchwise_lpips = torch.sum(self.lpips_model(y_pred, y))
         self._num_examples += y.shape[0]

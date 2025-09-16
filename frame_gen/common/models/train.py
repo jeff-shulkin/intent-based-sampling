@@ -9,6 +9,8 @@ import numpy as np
 from tqdm import tqdm
 
 from frame_gen.common.models.model import FusionFrameGen
+from frame_gen.common.metrics.loss_fn import CompositeLoss
+
 from frame_gen.datasets.HS_ERGB_dataset import HSERGBDataset
 from frame_gen.datasets.BS_ERGB_dataset import BSERGBDataset
 # TODO: Implement MVSEC Pytorch Dataset
@@ -99,7 +101,7 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
         print(f"Training LPIPS: {epoch_metrics["lpips"]}")
         print(f"Training MSE: {epoch_metrics["mse"]}")
 
-        #validate_model(model, loss_function, dls["val_dl"])
+        validate_model(model, loss_function, dls["val_dl"])
 
     # Close overall progress progress bar once all epochs have finished
     epoch_pbar.close()
@@ -214,7 +216,10 @@ def train_teacher(args):
 
     learning_rate = 1e-4
     num_epochs = args.num_epochs
-    loss_function = nn.L1Loss()  # TODO: Define proper loss function. Probably combination of L1Loss, LPIPS, maybe PSNR/SSIM?
+    loss_fn_dict = {
+        "L1": (nn.L1Loss(), 1.0),
+    }
+    loss_function = CompositeLoss(loss_fn_dict)
     optimizer = optim.AdamW(params=filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 
     # Train the teacher model
@@ -226,7 +231,8 @@ def train_teacher(args):
         dls=dls, 
         num_epochs=num_epochs, 
         device=device,
-        use_amp=args.use_amp)
+        use_amp=args.use_amp
+    )
 
     # Save the teacher model
     model_filename = "model.pth"

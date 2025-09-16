@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import random_split
 import numpy as np
+from typing import Sequence
 
 def determine_device():
     """Return GPU if available, otherwise CPU"""
@@ -41,3 +42,6 @@ def events_to_voxel(events, num_bins=5, image_size=(240, 320)):
         voxel_grid[b, yi, xi] += pi  # sum polarity
 
     return voxel_grid
+
+def _lpips_scale(im: Sequence[torch.Tensor]) -> Sequence[torch.Tensor]:
+    return 2 * im - 1
