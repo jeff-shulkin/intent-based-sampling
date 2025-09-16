@@ -18,7 +18,7 @@ class HSERGBDataset(Dataset):
 
         # Define RGB and event transforms
         self.rgb_input_transform = transforms.Compose([
-            transforms.Resize(image_size),
+            transforms.Resize(size=image_size),
             transforms.ToTensor(),
             transforms.Normalize(
                 mean=[0.485,0.456,0.406],
@@ -26,12 +26,12 @@ class HSERGBDataset(Dataset):
             )
         ])
         self.rgb_gt_transform = transforms.Compose([
-            transforms.Resize(image_size),
+            transforms.Resize(size=image_size),
             transforms.ToTensor()
         ])
 
         self.event_transform = transforms.Compose([
-            Event_ToTensor()
+            Event_ToTensor(image_size=image_size)
         ])
 
         # find all scenes 
