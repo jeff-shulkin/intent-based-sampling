@@ -17,7 +17,15 @@ class HSERGBDataset(Dataset):
         self.image_size = image_size
 
         # Define RGB and event transforms
-        self.rgb_transform = transforms.Compose([
+        self.rgb_input_transform = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485,0.456,0.406],
+                std=[0.229,0.224,0.225]
+            )
+        ])
+        self.rgb_gt_transform = transforms.Compose([
             transforms.Resize(image_size),
             transforms.ToTensor()
         ])
@@ -83,8 +91,8 @@ class HSERGBDataset(Dataset):
             events = np.empty((0,4)) 
 
         # Load and normalize RGB frames
-        frame_t = self.rgb_transform(load_frame(s["frame_t_path"]))
-        frame_tp1 = self.rgb_transform(load_frame(s["frame_tp1_path"]))
+        frame_t = self.rgb_input_transform(load_frame(s["frame_t_path"]))
+        frame_tp1 = self.rgb_gt_transform(load_frame(s["frame_tp1_path"]))
 
         # Convert events to normalized voxels
         event_voxels = self.event_transform(events)
