@@ -22,7 +22,7 @@ from tools.pytorch_tools import determine_device, split_dataset
 from tools.os_tools import image_size_arg
 
 # Training function
-def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epochs: int, device, use_amp: bool):
+def train_model(model, frame_loss_function, embedding_loss_function, optimizer, dls: list[DataLoader], num_epochs: int, device, use_amp: bool):
     # Initialize video metrics and training histories
     metrics = VideoMetrics(device=device)
     train_loss_history = []
@@ -61,13 +61,15 @@ def train_model(model, loss_function, optimizer, dls: list[DataLoader], num_epoc
 
             # Predict the next frame based on current RGB frame and event voxels
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
-                pred_frame = model(ref_frame, event_voxels)
-                loss = loss_function(pred_frame, gt_next_frame)
+                pred_frame, fused_embedding, gt_embedding = model(ref_frame, event_voxels, gt_next_frame)
+                embedding_loss = embedding_loss_function(gt_embedding, fused_embedding)
+                image_loss = frame_loss_function(pred_frame, gt_next_frame)
+                total_loss = 0.5 * embedding_loss + 0.5 * image_loss
 
-            epoch_loss_history.append(loss.item())
+            epoch_loss_history.append(total_loss.item())
             
             # Scale loss using GradScaler
-            scaler.scale(loss).backward()
+            scaler.scale(total_loss).backward()
 
             # Optimize
             scaler.step(optimizer)
@@ -122,7 +124,7 @@ def validate_model(model, loss_function, val_dl, device, use_amp: bool = True):
 
             # Forward pass
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
-                pred_frame = model(ref_frame, event_voxels)
+                pred_frame, fused_embedding, gt_embedding = model(ref_frame, event_voxels)
                 loss = loss_function(pred_frame, gt_next_frame)
 
             epoch_loss_history.append(loss.item())
@@ -219,14 +221,16 @@ def train_teacher(args):
     loss_fn_dict = {
         "L1": (nn.L1Loss(), 1.0),
     }
-    loss_function = CompositeLoss(loss_fn_dict)
+    frame_loss_function = CompositeLoss(loss_fn_dict)
+    embedding_loss_function = nn.MSELoss()
     optimizer = optim.AdamW(params=filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 
     # Train the teacher model
     print("Starting teacher model training...")
     train_model(
         model=compiled_model,
-        loss_function=loss_function, 
+        frame_loss_function=frame_loss_function,
+        embedding_loss_function=embedding_loss_function,
         optimizer=optimizer, 
         dls=dls, 
         num_epochs=num_epochs, 

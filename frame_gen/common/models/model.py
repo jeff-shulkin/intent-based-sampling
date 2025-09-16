@@ -25,7 +25,7 @@ class FusionFrameGen(nn.Module):
             dropout=0.1,
             num_voxels=1024,
             device=None
-            ):
+              ):
         super(FusionFrameGen, self).__init__()
         self.image_size = image_size
         self.patch_size = patch_size
@@ -61,8 +61,8 @@ class FusionFrameGen(nn.Module):
             image_size=self.image_size)
         
         # Define RGB and event projection layers
-        self.rgb_proj = nn.Linear(self.rgb_feature_dim, self.embed_dim)
-        self.event_proj = nn.Linear(self.event_encoder.embed_dim, self.embed_dim)
+        self.combined_proj = nn.Linear(self.rgb_feature_dim + self.event_encoder.embed_dim, self.embed_dim)
+        self.gt_proj = nn.Linear(self.rgb_feature_dim, self.embed_dim)
 
         # Define position encoding
         self.pos_encoder = nn.Parameter(torch.randn(1, self.rgb_feature_size[0] * self.rgb_feature_size[1], embed_dim))
@@ -115,26 +115,35 @@ class FusionFrameGen(nn.Module):
     def _generate_square_subsequent_mask(self, sz):
         return torch.triu(torch.ones(sz, sz, device=self.device) * float('-inf'), diagonal=1)
 
-    def forward(self, rgb_frame, event_voxels):
-        # Encode RGB frame
+    def forward(self, rgb_frame, event_voxels, gt_rgb_frame=None):
+        # Encode and embed RGB frame
         rgb_feats = self.rgb_encoder(rgb_frame)
         batch_size, channels, height, width = rgb_feats.shape
 
         # Flatten rgb tokens into [B, H*W, C]
-        rgb_tokens = rgb_feats.flatten(2).transpose(1, 2)
+        rgb_emb = rgb_feats.flatten(2).transpose(1,2).mean(dim=1)
 
-        # Encode event stream voxels
-        event_tokens = self.event_encoder(event_voxels)
+        # Encode and embed event stream voxels
+        event_emb = self.event_encoder(event_voxels).mean(dim=1)
 
-        # Project RGB and event encodings to embed_dim
-        rgb_tokens = self.rgb_proj(rgb_tokens)
-        event_tokens = self.event_proj(event_tokens)
+        # Concatenate RGB and Event tokens into fused embedding
+        combined_tokens = torch.cat([rgb_emb, event_emb], dim=1)
+        fused_emb = self.combined_proj(combined_tokens)
 
         # Encode positions onto RGB tokens
-        rgb_tokens += self.pos_encoder[:, :rgb_tokens.size(1), :]
+        fused_emb = fused_emb.unsqueeze(1)
+        fused_emb += self.pos_encoder[:, :fused_emb.size(1), :]
+
+        # Optional: Pass ground truth RGB frame through encoder -> embedding -> FC pipeline
+        gt_rgb_emb = None
+        if gt_rgb_frame != None:
+            gt_rgb_enc = self.rgb_encoder(gt_rgb_frame)
+            gt_rgb_tokens = gt_rgb_enc.flatten(2).transpose(1, 2)
+            gt_rgb_emb = self.gt_proj(gt_rgb_tokens).mean(dim=1)
 
         # Cross-attention decoder
-        fused_tokens = self.fusion_decoder(tgt=rgb_tokens, memory=event_tokens)
+        rgb_tokens = rgb_feats.flatten(2).transpose(1, 2)
+        fused_tokens = self.fusion_decoder(tgt=rgb_tokens, memory=fused_emb)
 
         # Reshape tokens into 2D spatial map
         _, num_pixels, channels = fused_tokens.shape
@@ -148,4 +157,6 @@ class FusionFrameGen(nn.Module):
 
         # Interpolate generated image to input resolution
         predicted_frame = F.interpolate(img, size=self.image_size, mode="bilinear", align_corners=False)
-        return predicted_frame
+        
+        # Training mode: return predicted frame alongside Event+Voxel FC output and GT RGB FC output
+        return predicted_frame, fused_emb.squeeze(1), gt_rgb_emb
