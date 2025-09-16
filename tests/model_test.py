@@ -108,7 +108,7 @@ def test_inference(model, test_loader, device, use_amp=True):
             inference_history.append(end_time - start_time)
 
             # Display generated image:
-            show_frame_cv2(predicted_frame, "Generated Frame")
+            show_frame_cv2(curr_frame, predicted_frame, "Generated Frame")
             
 
     # Print inference time statistics
