@@ -98,7 +98,7 @@ def test_inference(model, test_loader, device, use_amp=True):
             
             predicted_frame = None
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
-                predicted_frame = model(curr_frame, curr_event_voxels)
+                predicted_frame, _, _ = model(curr_frame, curr_event_voxels)
             
             if device.type == "cuda":
                 torch.cuda.synchronize()
