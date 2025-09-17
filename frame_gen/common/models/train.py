@@ -221,7 +221,7 @@ def train_teacher(args):
     loss_fn_dict = {
         "L1": (nn.L1Loss(), 1.0),
     }
-    frame_loss_function = CompositeLoss(loss_fn_dict)
+    frame_loss_function = CompositeLoss(loss_fn_dict, device)
     embedding_loss_function = nn.MSELoss()
     optimizer = optim.AdamW(params=filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 

@@ -62,6 +62,7 @@ class FusionFrameGen(nn.Module):
         
         # Define RGB and event projection layers
         self.combined_proj = nn.Linear(self.rgb_feature_dim + self.event_encoder.embed_dim, self.embed_dim)
+        self.rgb_proj = nn.Linear(self.rgb_feature_dim, self.embed_dim)
         self.gt_proj = nn.Linear(self.rgb_feature_dim, self.embed_dim)
 
         # Define position encoding
@@ -142,7 +143,7 @@ class FusionFrameGen(nn.Module):
             gt_rgb_emb = self.gt_proj(gt_rgb_tokens).mean(dim=1)
 
         # Cross-attention decoder
-        rgb_tokens = rgb_feats.flatten(2).transpose(1, 2)
+        rgb_tokens = self.rgb_proj(rgb_feats.flatten(2).transpose(1, 2))
         fused_tokens = self.fusion_decoder(tgt=rgb_tokens, memory=fused_emb)
 
         # Reshape tokens into 2D spatial map
